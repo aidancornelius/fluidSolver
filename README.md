@@ -1,4 +1,6 @@
-# fluidSolver, a real-time GPU-accelerated fluid dynamics simulation
+# fluidSolver
+
+A real-time GPU-accelerated fluid dynamics simulation. Universal for all of Apple's major platforms (iOS, iPadOS, macOS [Mac Catalyst]).
 
 ## What is this codebase?
 
@@ -18,24 +20,12 @@ The foundation of this simulation is the [Navier-Stokes equations](https://en.wi
 
 Jos Stam's broke these equations into a series of steps that can be computed efficiently. The algorithm treats the fluid as a grid of cells, each storing velocity and density (colour) values. Each frame, it performs these steps:
 
-1. Add forces 
+**Add forces**
+
 User input adds velocity and dye at interaction points using Gaussian falloff.
 
-2. Diffusion
-Viscosity causes momentum to spread between neighbouring cells (solved using Jacobi iteration).
-
-3. Projection
-Makes the velocity field incompressible by removing divergence.
-
-4. Advection
-The fluid carries itself along its own velocity field (semi-Lagrangian method).
-
-5. Vorticity confinement 
-Optional enhancement that preserves swirling motion.
-
-### Mathematical techniques in detail
-
 **Diffusion step** 
+
 This models viscosity through the heat equation. The implementation uses an implicit solver for numerical stability, iteratively solving:
 
 ```
@@ -43,6 +33,7 @@ This models viscosity through the heat equation. The implementation uses an impl
 ```
 
 **Projection step**
+
 To enforce incompressibility, the algorithm:
 
 1. Calculates divergence: `div = -0.5 * (∂u_x/∂x + ∂u_y/∂y)`
@@ -50,9 +41,11 @@ To enforce incompressibility, the algorithm:
 3. Subtracts the pressure gradient: `u = u - ∇p`
 
 **Advection step**
+
 Uses backward particle tracing—for each grid cell, it traces backwards along the velocity field to find where the fluid came from, then samples that location using bilinear interpolation. This unconditionally stable method allows large time steps without blow-up.
 
 **Vorticity confinement**
+
 Calculates the curl (vorticity) of the velocity field:
 
 ```
