@@ -15,6 +15,8 @@
 		1A0000006A0000000000001 /* FluidShaders.metal in Sources */ = {isa = PBXBuildFile; fileRef = 1A0000016A0000000000001 /* FluidShaders.metal */; };
 		1A0000007A0000000000001 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 1A0000017A0000000000001 /* Assets.xcassets */; };
 		448BE8EF2E6C2CD00046723F /* FluidPresets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 448BE8EE2E6C2CD00046723F /* FluidPresets.swift */; };
+		448BE9F52E6C4B640046723F /* UserDefaultsExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 448BE9F42E6C4B640046723F /* UserDefaultsExtension.swift */; };
+		448BE9F72E6C4FE70046723F /* ColorPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = 448BE9F62E6C4FE70046723F /* ColorPalette.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -29,6 +31,8 @@
 		1A0000018A0000000000001 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		1A0000019A0000000000001 /* fluidSolver.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = fluidSolver.entitlements; sourceTree = "<group>"; };
 		448BE8EE2E6C2CD00046723F /* FluidPresets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FluidPresets.swift; sourceTree = "<group>"; };
+		448BE9F42E6C4B640046723F /* UserDefaultsExtension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserDefaultsExtension.swift; sourceTree = "<group>"; };
+		448BE9F62E6C4FE70046723F /* ColorPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColorPalette.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -82,9 +86,11 @@
 		1A000001NA0000000000001 /* Models */ = {
 			isa = PBXGroup;
 			children = (
+				448BE9F62E6C4FE70046723F /* ColorPalette.swift */,
 				1A0000014A0000000000001 /* FluidSolver.swift */,
 				1A0000015A0000000000001 /* ParticleSystem.swift */,
 				448BE8EE2E6C2CD00046723F /* FluidPresets.swift */,
+				448BE9F42E6C4B640046723F /* UserDefaultsExtension.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -178,6 +184,8 @@
 			files = (
 				1A0000001A0000000000001 /* fluidSolverApp.swift in Sources */,
 				448BE8EF2E6C2CD00046723F /* FluidPresets.swift in Sources */,
+				448BE9F72E6C4FE70046723F /* ColorPalette.swift in Sources */,
+				448BE9F52E6C4B640046723F /* UserDefaultsExtension.swift in Sources */,
 				1A0000002A0000000000001 /* ContentView.swift in Sources */,
 				1A0000003A0000000000001 /* MetalView.swift in Sources */,
 				1A0000004A0000000000001 /* FluidSolver.swift in Sources */,

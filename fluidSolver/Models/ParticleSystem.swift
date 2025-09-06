@@ -1,44 +1,138 @@
+//
+//  ParticleSystem.swift
+//  fluidSolver
+//
+//  Created by Aidan Cornelius-Bell on 6/9/2025.
+//
+
 import Foundation
 import Metal
 import MetalKit
 import simd
 
+/// Represents a single particle in the fluid simulation.
+///
+/// Particles follow the fluid velocity field initially then coast on momentum,
+/// creating visual trails that enhance the fluid motion.
 struct Particle {
+    /// Current position in screen coordinates
     var position: SIMD2<Float>
+    /// Current velocity vector
     var velocity: SIMD2<Float>
+    /// RGBA colour with alpha for transparency
     var color: SIMD4<Float>
+    /// Remaining life (0-1), controls opacity and removal
     var life: Float
+    /// Particle mass affecting fluid interaction strength
     var mass: Float
-    var age: Float = 0  // Track how long particle has existed
+    /// Time since spawn in seconds, affects fluid coupling
+    var age: Float = 0
 }
 
+/// Manages a system of particles that interact with the fluid simulation.
+///
+/// Particles are spawned at interaction points and follow the fluid velocity
+/// field with decreasing influence over time. They provide visual feedback
+/// for fluid motion through additive blending and motion trails.
 class ParticleSystem: ObservableObject {
+    // MARK: - Properties
+    
+    /// Metal device for GPU operations
     private var device: MTLDevice!
+    /// Active particles in the system
     private var particles: [Particle] = []
+    /// GPU buffer for particle data
     private var particleBuffer: MTLBuffer?
+    /// Unused vertex buffer (kept for compatibility)
     private var vertexBuffer: MTLBuffer?
+    /// Render pipeline for particle drawing
     private var renderPipelineState: MTLRenderPipelineState!
     
+    /// Maximum number of particles allowed
     private let maxParticles = 50000
+    /// Current insertion index for cycling (unused)
     private var currentIndex = 0
     
-    // Physics constants matching ofxMSAFluid exactly
-    @Published var momentum: Float = 0.5  // MOMENTUM in original
-    @Published var fluidForce: Float = 0.6  // FLUID_FORCE in original
-    @Published var fadeSpeed: Float = 0.001  // Alpha *= 0.999 in original
-    @Published var spawnCount: Int = 10  // Particles per spawn
-    @Published var spawnRadius: Float = 15.0  // Original uses 15 pixel radius
-    @Published var fluidDecayRate: Float = 3.0  // How quickly particles stop following fluid (higher = faster)
+    // MARK: - Physics parameters
     
+    /// Momentum preservation factor.
+    ///
+    /// Controls how much velocity particles retain over time.
+    /// Range: 0.0 to 1.0
+    @Published var momentum: Float = UserDefaults.standard.object(forKey: UserDefaults.FluidKeys.momentum.rawValue) != nil ? UserDefaults.standard.float(forKey: UserDefaults.FluidKeys.momentum.rawValue) : 0.5 {
+        didSet { UserDefaults.standard.set(momentum, forKey: UserDefaults.FluidKeys.momentum.rawValue) }
+    }
+    /// Strength of fluid velocity influence on particles.
+    ///
+    /// Higher values make particles follow fluid more closely.
+    /// Range: 0.0 to 1.0
+    @Published var fluidForce: Float = UserDefaults.standard.object(forKey: UserDefaults.FluidKeys.fluidForce.rawValue) != nil ? UserDefaults.standard.float(forKey: UserDefaults.FluidKeys.fluidForce.rawValue) : 0.6 {
+        didSet { UserDefaults.standard.set(fluidForce, forKey: UserDefaults.FluidKeys.fluidForce.rawValue) }
+    }
+    /// Rate at which particles fade out.
+    ///
+    /// Controls particle lifetime and trail length.
+    /// Range: 0.0 to 0.01
+    @Published var fadeSpeed: Float = UserDefaults.standard.object(forKey: UserDefaults.FluidKeys.fadeSpeedParticles.rawValue) != nil ? UserDefaults.standard.float(forKey: UserDefaults.FluidKeys.fadeSpeedParticles.rawValue) : 0.001 {
+        didSet { UserDefaults.standard.set(fadeSpeed, forKey: UserDefaults.FluidKeys.fadeSpeedParticles.rawValue) }
+    }
+    /// Number of particles spawned per interaction.
+    ///
+    /// Higher values create denser particle clouds.
+    /// Range: 1 to 50
+    @Published var spawnCount: Int = UserDefaults.standard.object(forKey: UserDefaults.FluidKeys.spawnCount.rawValue) != nil ? UserDefaults.standard.integer(forKey: UserDefaults.FluidKeys.spawnCount.rawValue) : 10 {
+        didSet { UserDefaults.standard.set(spawnCount, forKey: UserDefaults.FluidKeys.spawnCount.rawValue) }
+    }
+    /// Radius for random particle spawn positions.
+    ///
+    /// Creates spread around interaction point.
+    /// Range: 0.0 to 30.0 pixels
+    @Published var spawnRadius: Float = UserDefaults.standard.object(forKey: UserDefaults.FluidKeys.spawnRadius.rawValue) != nil ? UserDefaults.standard.float(forKey: UserDefaults.FluidKeys.spawnRadius.rawValue) : 15.0 {
+        didSet { UserDefaults.standard.set(spawnRadius, forKey: UserDefaults.FluidKeys.spawnRadius.rawValue) }
+    }
+    /// Rate at which fluid influence decreases with particle age.
+    ///
+    /// Higher values make particles break away from fluid sooner.
+    /// Range: 0.5 to 10.0
+    @Published var fluidDecayRate: Float = UserDefaults.standard.object(forKey: UserDefaults.FluidKeys.fluidDecayRate.rawValue) != nil ? UserDefaults.standard.float(forKey: UserDefaults.FluidKeys.fluidDecayRate.rawValue) : 3.0 {
+        didSet { UserDefaults.standard.set(fluidDecayRate, forKey: UserDefaults.FluidKeys.fluidDecayRate.rawValue) }
+    }
+    /// Links particle fluid coupling to fluid viscosity.
+    ///
+    /// When enabled, more viscous fluids affect particles more strongly.
+    @Published var linkToViscosity: Bool = UserDefaults.standard.object(forKey: UserDefaults.FluidKeys.linkToViscosity.rawValue) != nil ? UserDefaults.standard.bool(forKey: UserDefaults.FluidKeys.linkToViscosity.rawValue) : true {
+        didSet { UserDefaults.standard.set(linkToViscosity, forKey: UserDefaults.FluidKeys.linkToViscosity.rawValue) }
+    }
+    /// Visual size of particles.
+    ///
+    /// Affects rendering scale but not physics.
+    /// Range: 0.1 to 5.0
+    @Published var particleSize: Float = UserDefaults.standard.object(forKey: UserDefaults.FluidKeys.particleSize.rawValue) != nil ? UserDefaults.standard.float(forKey: UserDefaults.FluidKeys.particleSize.rawValue) : 1.0 {
+        didSet { UserDefaults.standard.set(particleSize, forKey: UserDefaults.FluidKeys.particleSize.rawValue) }
+    }
+    
+    /// Current number of active particles
     @Published var particleCount: Int = 0
-    @Published var isEnabled: Bool = true
+    /// Master enable/disable for particle system
+    @Published var isEnabled: Bool = UserDefaults.standard.object(forKey: UserDefaults.FluidKeys.particlesEnabled.rawValue) != nil ? UserDefaults.standard.bool(forKey: UserDefaults.FluidKeys.particlesEnabled.rawValue) : true {
+        didSet { UserDefaults.standard.set(isEnabled, forKey: UserDefaults.FluidKeys.particlesEnabled.rawValue) }
+    }
     
+    /// Initialises the particle system with Metal device.
+    ///
+    /// Sets up render pipeline and allocates GPU buffers.
+    ///
+    /// - Parameter device: Metal device for GPU operations
     init(device: MTLDevice) {
         self.device = device
         setupPipeline()
         setupBuffers()
     }
     
+    /// Configures the Metal render pipeline for particles.
+    ///
+    /// Sets up additive blending for glow effect and loads
+    /// particle vertex and fragment shaders.
     private func setupPipeline() {
         guard let library = device.makeDefaultLibrary() else {
             fatalError("Failed to load Metal library")
@@ -70,13 +164,24 @@ class ParticleSystem: ObservableObject {
         }
     }
     
+    /// Allocates GPU buffer for particle data.
     private func setupBuffers() {
         let bufferSize = MemoryLayout<Particle>.stride * maxParticles
         particleBuffer = device.makeBuffer(length: bufferSize, options: .storageModeShared)
     }
     
+    /// Previous interaction position (unused)
     private var previousPosition: CGPoint?
     
+    /// Spawns new particles at the specified position.
+    ///
+    /// Particles are created with random offsets and initial properties,
+    /// starting with zero velocity to be influenced by fluid field.
+    ///
+    /// - Parameters:
+    ///   - position: Spawn position in screen coordinates
+    ///   - count: Number of particles to spawn
+    ///   - windowSize: Current window dimensions
     func addParticles(at position: CGPoint, count: Int = 10, windowSize: CGSize) {
         guard isEnabled else { return }
         
@@ -124,6 +229,15 @@ class ParticleSystem: ObservableObject {
         updateBuffer()
     }
     
+    /// Updates particle physics and removes dead particles.
+    ///
+    /// Particles follow fluid velocity with decreasing influence over time,
+    /// transitioning to momentum-based motion. Removes particles that
+    /// leave the screen or fade below threshold.
+    ///
+    /// - Parameters:
+    ///   - fluidSolver: Fluid solver for velocity queries
+    ///   - windowSize: Current window dimensions
     func update(fluidSolver: FluidSolver, windowSize: CGSize) {
         guard isEnabled, !particles.isEmpty else { return }
         
@@ -143,8 +257,17 @@ class ParticleSystem: ObservableObject {
             // Reduce fluid influence rapidly after spawn
             let ageDecay = max(0, 1.0 - particle.age * fluidDecayRate)
             
+            // Link fluid force to viscosity if enabled (more viscous = particles follow more)
+            let effectiveFluidForce: Float
+            if linkToViscosity {
+                // Map viscosity (0...0.01) to reasonable fluid force (0.1...1.0)
+                effectiveFluidForce = 0.1 + (fluidSolver.viscosity / 0.01) * 0.9
+            } else {
+                effectiveFluidForce = fluidForce
+            }
+            
             // Apply fluid force with decay, increase momentum as fluid influence decreases
-            let fluidContribution = fluidVel * (particle.mass * fluidForce * ageDecay) * SIMD2<Float>(Float(windowSize.width), Float(windowSize.height))
+            let fluidContribution = fluidVel * (particle.mass * effectiveFluidForce * ageDecay) * SIMD2<Float>(Float(windowSize.width), Float(windowSize.height))
             let effectiveMomentum = momentum + (1.0 - momentum) * min(1.0, particle.age * 2.0)  // Momentum increases as particle ages
             let momentumContribution = particle.velocity * effectiveMomentum
             
@@ -179,6 +302,15 @@ class ParticleSystem: ObservableObject {
         updateBuffer()
     }
     
+    /// Samples fluid velocity at a position.
+    ///
+    /// Currently returns zero as actual sampling is done through
+    /// the fluid solver's getVelocityAt method.
+    ///
+    /// - Parameters:
+    ///   - position: Position to sample
+    ///   - solver: Fluid solver reference
+    /// - Returns: Velocity vector (currently zero)
     private func sampleFluidVelocity(at position: SIMD2<Float>, solver: FluidSolver) -> SIMD2<Float> {
         // Sample from the actual fluid solver's velocity field
         // Note: This is a simplified sampling - ideally we'd read directly from the texture
@@ -193,6 +325,9 @@ class ParticleSystem: ObservableObject {
         return SIMD2<Float>(0, 0)  // Will be replaced by actual fluid force
     }
     
+    /// Updates GPU buffer with current particle data.
+    ///
+    /// Copies particle array to GPU memory for rendering.
     private func updateBuffer() {
         guard let buffer = particleBuffer else { return }
         
@@ -202,6 +337,14 @@ class ParticleSystem: ObservableObject {
         }
     }
     
+    /// Renders particles using Metal.
+    ///
+    /// Draws particles as lines to create motion trail effect
+    /// with additive blending for glow.
+    ///
+    /// - Parameters:
+    ///   - renderEncoder: Active render command encoder
+    ///   - viewportSize: Current viewport dimensions
     func render(in renderEncoder: MTLRenderCommandEncoder, viewportSize: CGSize) {
         guard isEnabled, !particles.isEmpty, let buffer = particleBuffer else { return }
         
@@ -211,16 +354,29 @@ class ParticleSystem: ObservableObject {
         var viewport = SIMD2<Float>(Float(viewportSize.width), Float(viewportSize.height))
         renderEncoder.setVertexBytes(&viewport, length: MemoryLayout<SIMD2<Float>>.size, index: 1)
         
+        var scale = particleSize
+        renderEncoder.setVertexBytes(&scale, length: MemoryLayout<Float>.size, index: 2)
+        
         // Draw as lines to show motion trails (like original)
         renderEncoder.drawPrimitives(type: .line, vertexStart: 0, vertexCount: particles.count * 2)
     }
     
+    /// Clears all particles from the system.
     func reset() {
         particles.removeAll()
         particleCount = 0
         updateBuffer()
     }
     
+    /// Converts HSB colour to RGBA.
+    ///
+    /// Used for generating colourful particles based on time or position.
+    ///
+    /// - Parameters:
+    ///   - h: Hue (0-1)
+    ///   - s: Saturation (0-1)
+    ///   - b: Brightness (0-1)
+    /// - Returns: RGBA colour vector
     private func hsbToRgb(h: Float, s: Float, b: Float) -> SIMD4<Float> {
         let c = b * s
         let x = c * (1 - abs(fmod(h * 6, 2) - 1))

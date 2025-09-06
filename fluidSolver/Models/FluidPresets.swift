@@ -1,3 +1,10 @@
+//
+//  FluidPresets.swift
+//  fluidSolver
+//
+//  Created by Aidan Cornelius-Bell on 6/9/2025.
+//
+
 import Foundation
 
 struct FluidPreset {

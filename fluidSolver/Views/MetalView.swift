@@ -1,3 +1,10 @@
+//
+//  MetalView.swift
+//  fluidSolver
+//
+//  Created by Aidan Cornelius-Bell on 6/9/2025.
+//
+
 import SwiftUI
 import MetalKit
 

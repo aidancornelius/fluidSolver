@@ -1,12 +1,44 @@
+//
+//  FluidShaders.metal
+//  fluidSolver
+//
+//  Created by Aidan Cornelius-Bell on 6/9/2025.
+//
+
+/// Metal shaders for GPU-accelerated fluid simulation.
+///
+/// Implements the stable fluids algorithm with enhancements for visual quality.
+/// All kernels operate on 2D textures representing fluid fields.
+
 #include <metal_stdlib>
 using namespace metal;
 
-// Inline function for grid indexing
+/// Converts 2D coordinates to 1D array index.
+///
+/// Used for compatibility with linear array layouts.
+/// - Parameters:
+///   - x: X coordinate
+///   - y: Y coordinate
+///   - width: Grid width
+/// - Returns: Linear array index
 inline int FLUID_IX(int x, int y, int width) {
     return x + y * width;
 }
 
-// Kernel for adding forces and dye to the fluid
+/// Adds external forces and colour to the fluid simulation.
+///
+/// Applies Gaussian-weighted force and colour at a specified position.
+/// The influence decreases with distance from the centre point.
+///
+/// - Parameters:
+///   - velocity: Velocity field texture (read-write)
+///   - density: Density/colour field texture (read-write)
+///   - position: Centre position for force application
+///   - force: Force vector to apply
+///   - color: RGBA colour to add
+///   - radius: Influence radius in pixels
+///   - deltaTime: Time step for scaling
+///   - gid: Thread position in grid
 kernel void addForces(texture2d<float, access::read_write> velocity [[texture(0)]],
                       texture2d<float, access::read_write> density [[texture(1)]],
                       constant float2 &position [[buffer(0)]],
@@ -35,7 +67,17 @@ kernel void addForces(texture2d<float, access::read_write> velocity [[texture(0)
     }
 }
 
-// Diffusion kernel using Jacobi iteration
+/// Performs diffusion step using Jacobi iteration.
+///
+/// Spreads momentum (for velocity) or colour (for density) to neighbouring cells.
+/// Uses implicit solver for numerical stability.
+///
+/// - Parameters:
+///   - input: Source field texture
+///   - output: Destination field texture
+///   - viscosity: Diffusion coefficient
+///   - deltaTime: Time step
+///   - gid: Thread position in grid
 kernel void diffuse(texture2d<float, access::read> input [[texture(0)]],
                    texture2d<float, access::write> output [[texture(1)]],
                    constant float &viscosity [[buffer(0)]],
@@ -61,7 +103,17 @@ kernel void diffuse(texture2d<float, access::read> input [[texture(0)]],
     output.write(result, gid);
 }
 
-// Semi-Lagrangian advection
+/// Performs semi-Lagrangian advection.
+///
+/// Transports field values along velocity streamlines.
+/// Uses backward particle tracing with bilinear interpolation.
+///
+/// - Parameters:
+///   - velocity: Velocity field for transport
+///   - input: Field to advect
+///   - output: Advected field result
+///   - deltaTime: Time step
+///   - gid: Thread position in grid
 kernel void advect(texture2d<float, access::read> velocity [[texture(0)]],
                   texture2d<float, access::read> input [[texture(1)]],
                   texture2d<float, access::write> output [[texture(2)]],
@@ -97,7 +149,15 @@ kernel void advect(texture2d<float, access::read> velocity [[texture(0)]],
     output.write(result, gid);
 }
 
-// Calculate divergence for projection step
+/// Calculates velocity field divergence.
+///
+/// Measures local expansion/compression for pressure projection.
+/// Used to enforce incompressibility constraint.
+///
+/// - Parameters:
+///   - velocity: Velocity field
+///   - divergence: Output divergence field
+///   - gid: Thread position in grid
 kernel void divergence(texture2d<float, access::read> velocity [[texture(0)]],
                       texture2d<float, access::write> divergence [[texture(1)]],
                       uint2 gid [[thread_position_in_grid]]) {
@@ -119,7 +179,16 @@ kernel void divergence(texture2d<float, access::read> velocity [[texture(0)]],
     divergence.write(float4(div, 0, 0, 0), gid);
 }
 
-// Pressure solve using Jacobi iteration
+/// Solves Poisson equation for pressure.
+///
+/// Iterative solver that finds pressure field to make velocity
+/// field divergence-free (incompressible).
+///
+/// - Parameters:
+///   - divergence: Velocity divergence field
+///   - pressure: Current pressure estimate
+///   - pressureOut: Updated pressure estimate
+///   - gid: Thread position in grid
 kernel void pressureSolve(texture2d<float, access::read> divergence [[texture(0)]],
                          texture2d<float, access::read> pressure [[texture(1)]],
                          texture2d<float, access::write> pressureOut [[texture(2)]],
@@ -143,7 +212,15 @@ kernel void pressureSolve(texture2d<float, access::read> divergence [[texture(0)
     pressureOut.write(float4(p, 0, 0, 0), gid);
 }
 
-// Subtract pressure gradient from velocity
+/// Subtracts pressure gradient from velocity.
+///
+/// Final projection step that removes divergent component
+/// of velocity field to enforce incompressibility.
+///
+/// - Parameters:
+///   - pressure: Computed pressure field
+///   - velocity: Velocity field to correct (read-write)
+///   - gid: Thread position in grid
 kernel void subtractGradient(texture2d<float, access::read> pressure [[texture(0)]],
                             texture2d<float, access::read_write> velocity [[texture(1)]],
                             uint2 gid [[thread_position_in_grid]]) {
@@ -166,7 +243,15 @@ kernel void subtractGradient(texture2d<float, access::read> pressure [[texture(0
     velocity.write(vel, gid);
 }
 
-// Calculate vorticity (curl)
+/// Calculates vorticity (curl) of velocity field.
+///
+/// Measures local rotation intensity for vorticity confinement.
+/// Helps preserve small-scale turbulent features.
+///
+/// - Parameters:
+///   - velocity: Velocity field
+///   - vorticity: Output vorticity field
+///   - gid: Thread position in grid
 kernel void calculateVorticity(texture2d<float, access::read> velocity [[texture(0)]],
                               texture2d<float, access::write> vorticity [[texture(1)]],
                               uint2 gid [[thread_position_in_grid]]) {
@@ -188,7 +273,17 @@ kernel void calculateVorticity(texture2d<float, access::read> velocity [[texture
     vorticity.write(float4(curl, 0, 0, 0), gid);
 }
 
-// Apply vorticity confinement force
+/// Applies vorticity confinement forces.
+///
+/// Adds rotational forces to enhance swirling motion and
+/// counteract numerical dissipation.
+///
+/// - Parameters:
+///   - vorticity: Vorticity field
+///   - velocity: Velocity field to modify (read-write)
+///   - strength: Confinement strength
+///   - deltaTime: Time step
+///   - gid: Thread position in grid
 kernel void applyVorticity(texture2d<float, access::read> vorticity [[texture(0)]],
                           texture2d<float, access::read_write> velocity [[texture(1)]],
                           constant float &strength [[buffer(0)]],
@@ -219,7 +314,14 @@ kernel void applyVorticity(texture2d<float, access::read> vorticity [[texture(0)
     velocity.write(vel, gid);
 }
 
-// Fade density over time
+/// Fades density/colour over time.
+///
+/// Creates dissipation effect and prevents permanent accumulation.
+///
+/// - Parameters:
+///   - density: Density field to fade (read-write)
+///   - fadeRate: Fade amount per frame (0-1)
+///   - gid: Thread position in grid
 kernel void fadeDensity(texture2d<float, access::read_write> density [[texture(0)]],
                        constant float &fadeRate [[buffer(0)]],
                        uint2 gid [[thread_position_in_grid]]) {
@@ -230,13 +332,27 @@ kernel void fadeDensity(texture2d<float, access::read_write> density [[texture(0
     density.write(dens, gid);
 }
 
-// Clear texture
+/// Clears texture to zero.
+///
+/// Used for initialisation and reset operations.
+///
+/// - Parameters:
+///   - texture: Texture to clear (write-only)
+///   - gid: Thread position in grid
 kernel void clearTexture(texture2d<float, access::write> texture [[texture(0)]],
                         uint2 gid [[thread_position_in_grid]]) {
     texture.write(float4(0), gid);
 }
 
-// Render density to display texture
+/// Renders density field for display.
+///
+/// Converts density values to visible colours with brightness adjustment.
+///
+/// - Parameters:
+///   - density: Density field to render
+///   - output: Display texture
+///   - brightness: Brightness multiplier
+///   - gid: Thread position in grid
 kernel void renderDensity(texture2d<float, access::read> density [[texture(0)]],
                          texture2d<float, access::write> output [[texture(1)]],
                          constant float &brightness [[buffer(0)]],
@@ -248,7 +364,16 @@ kernel void renderDensity(texture2d<float, access::read> density [[texture(0)]],
     output.write(color, gid);
 }
 
-// Render velocity field as motion visualization
+/// Renders velocity field as colour-coded motion.
+///
+/// Maps velocity components to RGB channels for visualisation.
+/// Red shows horizontal motion, green shows vertical, blue shows speed.
+///
+/// - Parameters:
+///   - velocity: Velocity field to render
+///   - output: Display texture
+///   - scale: Velocity scaling factor
+///   - gid: Thread position in grid
 kernel void renderVelocity(texture2d<float, access::read> velocity [[texture(0)]],
                           texture2d<float, access::write> output [[texture(1)]],
                           constant float &scale [[buffer(0)]],
@@ -267,7 +392,15 @@ kernel void renderVelocity(texture2d<float, access::read> velocity [[texture(0)]
     output.write(float4(color, 1.0), gid);
 }
 
-// Render speed as grayscale
+/// Renders velocity magnitude as greyscale.
+///
+/// Visualises flow speed intensity regardless of direction.
+///
+/// - Parameters:
+///   - velocity: Velocity field
+///   - output: Display texture
+///   - scale: Speed scaling factor
+///   - gid: Thread position in grid
 kernel void renderSpeed(texture2d<float, access::read> velocity [[texture(0)]],
                        texture2d<float, access::write> output [[texture(1)]],
                        constant float &scale [[buffer(0)]],
@@ -279,7 +412,9 @@ kernel void renderSpeed(texture2d<float, access::read> velocity [[texture(0)]],
     output.write(float4(color, 1.0), gid);
 }
 
-// Particle struct matching Swift side
+/// Particle data structure for GPU processing.
+///
+/// Matches Swift-side Particle struct for data transfer.
 struct Particle {
     float2 position;
     float2 velocity;
@@ -289,15 +424,28 @@ struct Particle {
     float age;
 };
 
+/// Vertex shader output for particle rendering.
 struct ParticleOutput {
     float4 position [[position]];
     float4 color;
     float pointSize [[point_size]];
 };
 
+/// Vertex shader for particle rendering.
+///
+/// Generates line primitives from particle positions and velocities
+/// to create motion trail effects.
+///
+/// - Parameters:
+///   - vertexID: Vertex identifier (2 per particle for lines)
+///   - particles: Particle data buffer
+///   - viewportSize: Screen dimensions for coordinate conversion
+///   - particleScale: Visual scale factor for trails
+/// - Returns: Transformed vertex data
 vertex ParticleOutput particleVertex(uint vertexID [[vertex_id]],
                                     constant Particle *particles [[buffer(0)]],
-                                    constant float2 &viewportSize [[buffer(1)]]) {
+                                    constant float2 &viewportSize [[buffer(1)]],
+                                    constant float &particleScale [[buffer(2)]]) {
     ParticleOutput out;
     
     // Each particle generates 2 vertices for a line (like original)
@@ -307,9 +455,10 @@ vertex ParticleOutput particleVertex(uint vertexID [[vertex_id]],
     Particle particle = particles[particleIndex];
     
     // Line from (pos - vel) to pos, like original
+    // Scale the velocity trail based on particle size
     float2 pos;
     if (isStart) {
-        pos = particle.position - particle.velocity;  // Trail start
+        pos = particle.position - particle.velocity * particleScale;  // Trail start, scaled
     } else {
         pos = particle.position;  // Trail end
     }
@@ -325,6 +474,12 @@ vertex ParticleOutput particleVertex(uint vertexID [[vertex_id]],
     return out;
 }
 
+/// Fragment shader for particle rendering.
+///
+/// Passes through particle colour with alpha blending.
+///
+/// - Parameter in: Interpolated vertex data
+/// - Returns: Final pixel colour
 fragment float4 particleFragment(ParticleOutput in [[stage_in]]) {
     return in.color;
 }
