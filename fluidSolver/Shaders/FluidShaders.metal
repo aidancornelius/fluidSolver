@@ -3,6 +3,7 @@
 //  fluidSolver
 //
 //  Created by Aidan Cornelius-Bell on 6/9/2025.
+//  Based on the original ofxMSAFluid library, Copyright (c) 2008-2012 Memo Akten.
 //
 
 /// Metal shaders for GPU-accelerated fluid simulation.

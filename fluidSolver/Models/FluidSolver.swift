@@ -3,6 +3,7 @@
 //  fluidSolver
 //
 //  Created by Aidan Cornelius-Bell on 6/9/2025.
+//  Based on the original ofxMSAFluid library, Copyright (c) 2008-2012 Memo Akten.
 //
 
 import Foundation
@@ -668,6 +669,5 @@ class FluidSolver: ObservableObject {
     private func updateVelocityField() {
         // This would ideally read from the GPU texture
         // For now, we'll approximate based on last input
-        // The real implementation would use a compute shader to copy data
     }
 }
